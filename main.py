@@ -108,11 +108,11 @@ async def read_message(request: Request):
     return body.get("message") if isinstance(body, dict) else None
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return PlainTextResponse("Gemini + RAG backend is running 🚀")
 
-
+    
 @app.post("/chat")
 async def chat(request: Request):
     check_rate_limit(request)
