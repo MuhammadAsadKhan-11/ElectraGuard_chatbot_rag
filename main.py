@@ -20,7 +20,14 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("server")
 
-GENERATION_MODELS = [m.strip() for m in os.getenv("GENERATION_MODELS", "gemini-3.5-flash").split(",") if m.strip()]
+GENERATION_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "GENERATION_MODELS",
+        "gemini-2.5-flash,gemini-2.0-flash,gemini-3.5-flash",
+    ).split(",")
+    if m.strip()
+]
 DEGRADED_FALLBACK = os.getenv("DEGRADED_FALLBACK", "true").lower() == "true"
 KEEPALIVE_URL = os.getenv("KEEPALIVE_URL", "https://electraguard-backend-1.onrender.com")
 RATE_LIMIT, RATE_WINDOW = 100, 60  # 100 requests / minute / IP
