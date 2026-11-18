@@ -184,7 +184,9 @@ async def chat(request: Request):
             raise HTTPException(429, "Gemini quota exceeded. Please try again later.", headers=headers)
         raise HTTPException(500, "Server error")
     except httpx.HTTPError as e:
-        log.error("Gemini network error: %s", e)
+        log.error("Gemini network error: %s %s", type(e).__name__, e)
+        if isinstance(e, httpx.TimeoutException):
+            raise HTTPException(504, "The AI service took too long to respond. Please try again.")
         raise HTTPException(500, "Server error")
 
     payload = {"reply": reply, "sources": sources}

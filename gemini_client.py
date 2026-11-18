@@ -11,6 +11,7 @@ BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 EMBED_DIMENSIONS = 768  # must match build_index.py
+GENERATE_TIMEOUT = float(os.getenv("GENERATE_TIMEOUT", "60"))  # seconds per model attempt
 
 
 # model -> unix time until which we skip it (set when its quota is exhausted)
@@ -48,11 +49,14 @@ def _retry_after_from(resp: httpx.Response) -> float | None:
     return parse_duration(m.group(1)) if m else None
 
 
-async def _post(client: httpx.AsyncClient, model: str, method: str, body: dict, api_key: str):
+async def _post(client: httpx.AsyncClient, model: str, method: str, body: dict, api_key: str,
+                timeout: float | None = None):
+    kwargs = {"timeout": timeout} if timeout is not None else {}
     resp = await client.post(
         f"{BASE}/{model}:{method}",
         json=body,
         headers={"x-goog-api-key": api_key},  # header, so the key never lands in URLs/logs
+        **kwargs,
     )
     if resp.status_code != 200:
         try:
@@ -82,6 +86,7 @@ async def generate(client: httpx.AsyncClient, prompt: str, models: list[str], ap
     """Try each model in order; on quota/unknown-model errors move to the next one."""
     last_quota: GeminiError | None = None
     last_other: GeminiError | None = None
+    last_net: httpx.HTTPError | None = None
 
     now = time.time()
     available = [m for m in models if _cooldown.get(m, 0) <= now]
@@ -92,9 +97,15 @@ async def generate(client: httpx.AsyncClient, prompt: str, models: list[str], ap
                 data = await _post(
                     client, model, "generateContent",
                     {"contents": [{"parts": [{"text": prompt}]}]}, api_key,
+                    timeout=GENERATE_TIMEOUT,
                 )
                 parts = (((data.get("candidates") or [{}])[0]).get("content") or {}).get("parts") or [{}]
                 return parts[0].get("text") or "No response received."
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                # Slow/unreachable model -> try the next one instead of failing the request
+                log.warning("Model %s network error (%s) -> trying next model", model, type(e).__name__)
+                last_net = e
+                break
             except GeminiError as e:
                 if e.status == 429:
                     # Short per-minute limit: wait once and retry the same model.
@@ -113,4 +124,6 @@ async def generate(client: httpx.AsyncClient, prompt: str, models: list[str], ap
 
     if last_quota is not None:
         raise last_quota
+    if last_net is not None and last_other is None:
+        raise last_net
     raise last_other or GeminiError(500, "No Gemini model available")
