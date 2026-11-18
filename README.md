@@ -164,7 +164,9 @@ All settings are environment variables (loaded from `.env` locally, or from the 
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | Yes | — | Your Google Gemini API key. |
 | `PORT` | No | `5000` | Port used by `python main.py` (Render sets this automatically). |
-| `GENERATION_MODELS` | No | `gemini-3.5-flash` | Comma-separated Gemini models, tried in order. If one hits its quota, the next is used. |
+| `GENERATION_MODELS` | No | `gemini-3.5-flash-lite, gemini-3.5-flash, gemini-3.8-flash` | Comma-separated Gemini models, tried in order (put the fastest first). If one hits its quota, is overloaded or times out, the next is used. |
+| `GENERATE_TIMEOUT` | No | `20` | Seconds to wait for one model before trying the next. |
+| `THINKING_LEVEL` | No | `low` | How much the model "thinks" before answering. Lower is faster. Set it empty to send no thinking setting. |
 | `DEGRADED_FALLBACK` | No | `true` | If every model is out of quota, return the best official excerpt instead of an error. |
 | `KEEPALIVE_URL` | No | the original Render URL | URL the server pings every 10 minutes. Set it to your own service URL, or leave it empty to disable. |
 | `EMBED_MODEL` | No | `gemini-embedding-001` | Embedding model. It must match the one used to build the index. |

@@ -11,7 +11,11 @@ BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "gemini-embedding-001")
 EMBED_DIMENSIONS = 768  # must match build_index.py
-GENERATE_TIMEOUT = float(os.getenv("GENERATE_TIMEOUT", "60"))  # seconds per model attempt
+GENERATE_TIMEOUT = float(os.getenv("GENERATE_TIMEOUT", "20"))  # seconds per model attempt
+# Less "thinking" = much faster replies. Set THINKING_LEVEL="" to send no thinking config.
+THINKING_LEVEL = os.getenv("THINKING_LEVEL", "low").strip()
+# Models that rejected thinkingConfig; we stop sending it to them.
+_no_thinking: set[str] = set()
 
 
 # model -> unix time until which we skip it (set when its quota is exhausted)
@@ -93,10 +97,13 @@ async def generate(client: httpx.AsyncClient, prompt: str, models: list[str], ap
     # If every model is cooling down, still try them (quota may have been reset early).
     for model in available or models:
         for attempt in (1, 2):
+            body: dict = {"contents": [{"parts": [{"text": prompt}]}]}
+            use_thinking = bool(THINKING_LEVEL) and model not in _no_thinking
+            if use_thinking:
+                body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": THINKING_LEVEL}}
             try:
                 data = await _post(
-                    client, model, "generateContent",
-                    {"contents": [{"parts": [{"text": prompt}]}]}, api_key,
+                    client, model, "generateContent", body, api_key,
                     timeout=GENERATE_TIMEOUT,
                 )
                 parts = (((data.get("candidates") or [{}])[0]).get("content") or {}).get("parts") or [{}]
@@ -116,7 +123,12 @@ async def generate(client: httpx.AsyncClient, prompt: str, models: list[str], ap
                     _cooldown[model] = time.time() + min(e.retry_after or 60, 3600)
                     last_quota = e
                     break
-                if e.status in (400, 404):  # bad / unavailable model name -> try next
+                if e.status == 400 and use_thinking and "think" in e.message.lower():
+                    # This model doesn't support thinkingLevel -> retry without it
+                    log.info("Model %s rejected thinkingConfig; retrying without it", model)
+                    _no_thinking.add(model)
+                    continue
+                if e.status in (400, 404, 500, 503):  # bad name / overloaded -> try next
                     log.warning("Model %s rejected: %s", model, e.message[:200])
                     last_other = e
                     break
